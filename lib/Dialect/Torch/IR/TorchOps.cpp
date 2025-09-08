@@ -234,6 +234,28 @@ static Value getScalarFloatValue(Value input, Location loc,
   return nullptr;
 }
 
+// Common helper for splat-only rounding-based folders.
+static OpFoldResult foldSplatRounding(ValueTensorType resultType,
+                                      Attribute selfAttr,
+                                      APFloat::roundingMode mode) {
+  auto elems = dyn_cast_or_null<DenseElementsAttr>(selfAttr);
+  if (!elems || !elems.isSplat())
+    return {};
+
+  if (!isa<mlir::FloatType>(resultType.getDtype()))
+    return {};
+
+  auto outShaped = resultType.toBuiltinTensor();
+  if (!outShaped.hasStaticShape())
+    return {};
+
+  APFloat v = elems.getSplatValue<APFloat>();
+  // NaNs and infs are dealt with consistently with torch, so you can discard
+  // side-effects.
+  (void)v.roundToIntegral(mode);
+  return DenseElementsAttr::get(outShaped, v);
+}
+
 //===----------------------------------------------------------------------===//
 // MethodOp
 //===----------------------------------------------------------------------===//
@@ -2062,10 +2084,19 @@ OpFoldResult AtenLogOp::fold(FoldAdaptor adaptor) {
 
 OpFoldResult AtenFloorOp::fold(FoldAdaptor adaptor) {
   auto resultType = dyn_cast<ValueTensorType>(getType());
-  if (resultType && resultType.hasDtype() &&
-      isa<mlir::IntegerType>(resultType.getDtype())) {
+
+  if (!resultType || !resultType.hasDtype())
+    return {};
+
+  // No-op if the result is int, fold.
+  if (isa<mlir::IntegerType>(resultType.getDtype()))
     return getSelf();
-  }
+
+  // Fold float splats.
+  if (auto res = foldSplatRounding(resultType, adaptor.getSelf(),
+                                   APFloat::rmTowardNegative))
+    return res;
+
   return {};
 }
 
@@ -2075,10 +2106,19 @@ OpFoldResult AtenFloorOp::fold(FoldAdaptor adaptor) {
 
 OpFoldResult AtenCeilOp::fold(FoldAdaptor adaptor) {
   auto resultType = dyn_cast<ValueTensorType>(getType());
-  if (resultType && resultType.hasDtype() &&
-      isa<mlir::IntegerType>(resultType.getDtype())) {
+
+  if (!resultType || !resultType.hasDtype())
+    return {};
+
+  // No-op if the result is int, fold.
+  if (isa<mlir::IntegerType>(resultType.getDtype()))
     return getSelf();
-  }
+
+  // Fold float splats.
+  if (auto res = foldSplatRounding(resultType, adaptor.getSelf(),
+                                   APFloat::rmTowardPositive))
+    return res;
+
   return {};
 }
 
@@ -2101,10 +2141,18 @@ OpFoldResult AtenRoundDecimalsOp::fold(FoldAdaptor adaptor) {
 
 OpFoldResult AtenRoundOp::fold(FoldAdaptor adaptor) {
   auto resultType = dyn_cast<ValueTensorType>(getType());
-  if (resultType && resultType.hasDtype() &&
-      isa<mlir::IntegerType>(resultType.getDtype())) {
+  if (!resultType || !resultType.hasDtype())
+    return {};
+
+  // No-op if the result is int, fold.
+  if (isa<mlir::IntegerType>(resultType.getDtype()))
     return getSelf();
-  }
+
+  // Fold float splats.
+  if (auto res = foldSplatRounding(resultType, adaptor.getSelf(),
+                                   APFloat::rmNearestTiesToEven))
+    return res;
+
   return {};
 }
 
@@ -2114,10 +2162,19 @@ OpFoldResult AtenRoundOp::fold(FoldAdaptor adaptor) {
 
 OpFoldResult AtenTruncOp::fold(FoldAdaptor adaptor) {
   auto resultType = dyn_cast<ValueTensorType>(getType());
-  if (resultType && resultType.hasDtype() &&
-      isa<mlir::IntegerType>(resultType.getDtype())) {
+
+  if (!resultType || !resultType.hasDtype())
+    return {};
+
+  // No-op if the result is int, fold.
+  if (isa<mlir::IntegerType>(resultType.getDtype()))
     return getSelf();
-  }
+
+  // Fold float splats.
+  if (auto res = foldSplatRounding(resultType, adaptor.getSelf(),
+                                   APFloat::rmTowardZero))
+    return res;
+
   return {};
 }
 
