@@ -1733,6 +1733,10 @@ class GraphNodeImporter:
             mlir_op_name, result_types=result_types, operands=operands, loc=loc
         )
 
+        operation.operation.attributes["custom_attribute"] = StringAttr.get(
+            f"{node.meta.get('custom_attribute')}"
+        )
+
         # Record value mapping.
         for i, value in enumerate(operation.results):
             self.bind_node_value(node, value, i)
